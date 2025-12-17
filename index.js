@@ -1,6 +1,7 @@
 const express = require('express');
 const ytdl = require('ytdl-core');
 const cors = require('cors');
+const youtubesearchapi = require('youtube-search-api');
 
 const app = express();
 app.use(cors());
@@ -8,7 +9,30 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// Optional: Video info endpoint
+// New Endpoint: Search YouTube (top 5 results)
+app.get('/search', async (req, res) => {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: 'Query (q) missing' });
+
+    try {
+        const result = await youtubesearchapi.GetListByKeyword(q, false, 5);
+        const items = result.items.filter(item => item.type === 'video'); // only videos
+
+        const formatted = items.map((item, index) => ({
+            id: index + 1,
+            title: item.title,
+            duration: item.length?.simpleText || 'Unknown',
+            channel: item.channelTitle || 'Unknown',
+            url: `https://www.youtube.com/watch?v=${item.id}`
+        }));
+
+        res.json({ results: formatted });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Existing: Video info (optional)
 app.get('/info', async (req, res) => {
     const { url } = req.query;
     if (!url || !ytdl.validateURL(url)) return res.status(400).json({ error: 'Invalid URL' });
@@ -25,7 +49,7 @@ app.get('/info', async (req, res) => {
     }
 });
 
-// Video Download (highest quality with audio)
+// Download Video
 app.get('/download/video', async (req, res) => {
     const { url } = req.query;
     if (!url || !ytdl.validateURL(url)) return res.status(400).send('Invalid URL');
@@ -37,16 +61,13 @@ app.get('/download/video', async (req, res) => {
         res.header('Content-Disposition', `attachment; filename="${title}.mp4"`);
         res.header('Content-Type', 'video/mp4');
 
-        ytdl(url, {
-            quality: 'highestvideo',
-            filter: 'videoandaudio' // merged video + audio
-        }).pipe(res);
+        ytdl(url, { quality: 'highestvideo', filter: 'videoandaudio' }).pipe(res);
     } catch (err) {
         res.status(500).send('Error: ' + err.message);
     }
 });
 
-// Audio Download (highest audio as mp3-like)
+// Download Audio
 app.get('/download/audio', async (req, res) => {
     const { url } = req.query;
     if (!url || !ytdl.validateURL(url)) return res.status(400).send('Invalid URL');
@@ -55,20 +76,24 @@ app.get('/download/audio', async (req, res) => {
         const info = await ytdl.getInfo(url);
         const title = info.videoDetails.title.replace(/[^\w\s]/gi, '_') || 'audio';
 
-        res.header('Content-Disposition', `attachment; filename="${title}.mp4"`);
-        res.header('Content-Type', 'audio/mp4'); // ytdl-core mp4 audio দেয় (m4a)
+        res.header('Content-Disposition', `attachment; filename="${title}.m4a"`);
+        res.header('Content-Type', 'audio/mp4');
 
-        ytdl(url, {
-            quality: 'highestaudio',
-            filter: 'audioonly'
-        }).pipe(res);
+        ytdl(url, { quality: 'highestaudio', filter: 'audioonly' }).pipe(res);
     } catch (err) {
         res.status(500).send('Error: ' + err.message);
     }
 });
 
 app.get('/', (req, res) => {
-    res.send('YouTube Downloader API (ytdl-core) Running! Use /download/video?url=... or /download/audio?url=...');
+    res.send(`
+        <h1>YouTube API with Search + Download 🔥</h1>
+        <ul>
+            <li>/search?q=faded → Top 5 results</li>
+            <li>/download/audio?url=... → Audio stream</li>
+            <li>/download/video?url=... → Video stream</li>
+        </ul>
+    `);
 });
 
 app.listen(PORT, () => {
